@@ -1,362 +1,341 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import cv2
-import torch
-import numpy as np
 from PIL import Image, ImageTk
-import os
+import torch
 import threading
 import time
-
+import os
 
 class YOLODetectorApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("YOLOv5目标检测软件")
-        self.root.geometry("1200x800")
+        self.root.title("YOLOv5 目标检测软件")
+        self.root.geometry("1400x900")
         
         # 初始化变量
-        self.model_path = None
-        self.model = None
+        self.model_path = tk.StringVar()
+        self.current_model = None
         self.cap = None
-        self.is_running = False
-        self.current_image = None
-        self.current_video_path = None
-        self.video_cap = None
-        self.playing_video = False
+        self.is_detecting = False
+        self.model_type = tk.StringVar(value="pt")  # 当前模型类型
         
-        # 创建界面
-        self.create_widgets()
-        
-    def create_widgets(self):
-        # 主框架
-        main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # 左侧控制面板
-        control_frame = ttk.LabelFrame(main_frame, text="控制面板", padding=10)
-        control_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
-        
-        # 模型选择
-        ttk.Label(control_frame, text="模型路径:").pack(anchor=tk.W)
-        model_frame = ttk.Frame(control_frame)
-        model_frame.pack(fill=tk.X, pady=5)
-        self.model_path_var = tk.StringVar()
-        self.model_entry = ttk.Entry(model_frame, textvariable=self.model_path_var)
-        self.model_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(model_frame, text="浏览", command=self.browse_model).pack(side=tk.RIGHT, padx=(5, 0))
-        
-        # 加载模型按钮
-        ttk.Button(control_frame, text="加载模型", command=self.load_model).pack(fill=tk.X, pady=5)
-        
-        # 功能选择
-        ttk.Label(control_frame, text="功能选择:").pack(anchor=tk.W, pady=(10, 5))
-        self.func_var = tk.StringVar(value="image")
-        
-        ttk.Radiobutton(control_frame, text="图片检测", variable=self.func_var, value="image").pack(anchor=tk.W)
-        ttk.Radiobutton(control_frame, text="摄像头检测", variable=self.func_var, value="camera").pack(anchor=tk.W)
-        ttk.Radiobutton(control_frame, text="视频检测", variable=self.func_var, value="video").pack(anchor=tk.W)
-        
-        # 图片检测相关控件
-        self.image_frame = ttk.Frame(control_frame)
-        self.image_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(self.image_frame, text="图片路径:").pack(anchor=tk.W)
-        img_frame = ttk.Frame(self.image_frame)
-        img_frame.pack(fill=tk.X)
-        self.image_path_var = tk.StringVar()
-        ttk.Entry(img_frame, textvariable=self.image_path_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(img_frame, text="浏览", command=self.browse_image).pack(side=tk.RIGHT, padx=(5, 0))
-        ttk.Button(self.image_frame, text="开始检测", command=self.detect_image).pack(fill=tk.X, pady=(5, 0))
-        
-        # 摄像头相关控件
-        self.camera_frame = ttk.Frame(control_frame)
-        self.camera_frame.pack(fill=tk.X, pady=5)
-        self.camera_frame.pack_forget()  # 默认隐藏
-        ttk.Button(self.camera_frame, text="打开摄像头", command=self.open_camera).pack(fill=tk.X, pady=5)
-        ttk.Button(self.camera_frame, text="关闭摄像头", command=self.close_camera).pack(fill=tk.X, pady=5)
-        
-        # 视频检测相关控件
-        self.video_frame = ttk.Frame(control_frame)
-        self.video_frame.pack(fill=tk.X, pady=5)
-        self.video_frame.pack_forget()  # 默认隐藏
-        ttk.Label(self.video_frame, text="视频路径:").pack(anchor=tk.W)
-        vid_frame = ttk.Frame(self.video_frame)
-        vid_frame.pack(fill=tk.X)
-        self.video_path_var = tk.StringVar()
-        ttk.Entry(vid_frame, textvariable=self.video_path_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(vid_frame, text="浏览", command=self.browse_video).pack(side=tk.RIGHT, padx=(5, 0))
-        ttk.Button(self.video_frame, text="开始检测", command=self.detect_video).pack(fill=tk.X, pady=(5, 0))
-        ttk.Button(self.video_frame, text="暂停/继续", command=self.toggle_video_play).pack(fill=tk.X, pady=5)
-        
-        # 功能选择事件绑定
-        self.func_var.trace('w', self.on_func_change)
-        
-        # 右侧显示区域
-        display_frame = ttk.LabelFrame(main_frame, text="检测结果", padding=10)
-        display_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
-        
-        # 创建Canvas用于显示图像
-        self.canvas = tk.Canvas(display_frame, bg="black")
-        self.canvas.pack(fill=tk.BOTH, expand=True)
-        
-        # 进度条（用于视频检测）
-        self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(display_frame, variable=self.progress_var, mode='determinate')
-        self.progress_bar.pack(fill=tk.X, pady=(5, 0))
-        self.progress_bar.pack_forget()
-        
-        # 信息显示区域
-        info_frame = ttk.LabelFrame(main_frame, text="检测信息", padding=10)
-        info_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=0, pady=(10, 0))
-        
-        self.info_text = tk.Text(info_frame, height=6)
-        self.info_text.pack(fill=tk.BOTH, expand=True)
-        
-    def on_func_change(self, *args):
-        # 根据选择的功能显示/隐藏相关控件
-        func = self.func_var.get()
-        if func == "image":
-            self.image_frame.pack(fill=tk.X, pady=5)
-            self.camera_frame.pack_forget()
-            self.video_frame.pack_forget()
-        elif func == "camera":
-            self.image_frame.pack_forget()
-            self.camera_frame.pack(fill=tk.X, pady=5)
-            self.video_frame.pack_forget()
-        elif func == "video":
-            self.image_frame.pack_forget()
-            self.camera_frame.pack_forget()
-            self.video_frame.pack(fill=tk.X, pady=5)
+        self.setup_ui()
     
-    def browse_model(self):
+    def setup_ui(self):
+        # 配置网格权重，使界面可以响应窗口大小变化
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        
+        # 创建主框架
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_frame.columnconfigure(1, weight=1)
+        main_frame.rowconfigure(2, weight=1)
+        
+        # 模型选择区域
+        model_frame = ttk.LabelFrame(main_frame, text="模型选择", padding="10")
+        model_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        model_frame.columnconfigure(1, weight=1)
+        
+        ttk.Label(model_frame, text="模型路径:").grid(row=0, column=0, sticky=tk.W, padx=5)
+        ttk.Entry(model_frame, textvariable=self.model_path, width=50).grid(row=0, column=1, padx=5, sticky=(tk.W, tk.E))
+        ttk.Button(model_frame, text="选择模型", command=self.select_model).grid(row=0, column=2, padx=5)
+        ttk.Button(model_frame, text="加载模型", command=self.load_model).grid(row=0, column=3, padx=5)
+        
+        # 模型类型选择
+        ttk.Label(model_frame, text="模型格式:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=(5,0))
+        model_type_combo = ttk.Combobox(model_frame, textvariable=self.model_type, values=["pt", "pth", "onnx"], state="readonly", width=10)
+        model_type_combo.grid(row=1, column=1, sticky=tk.W, padx=5, pady=(5,0))
+        
+        # 功能选择区域
+        func_frame = ttk.LabelFrame(main_frame, text="功能选择", padding="10")
+        func_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        
+        ttk.Button(func_frame, text="图片检测", command=self.detect_image).grid(row=0, column=0, padx=5, pady=5)
+        ttk.Button(func_frame, text="摄像头检测", command=self.detect_camera).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(func_frame, text="视频检测", command=self.detect_video).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Button(func_frame, text="停止检测", command=self.stop_detection).grid(row=0, column=3, padx=5, pady=5)
+        
+        # 显示区域
+        display_frame = ttk.Frame(main_frame)
+        display_frame.grid(row=2, column=0, columnspan=2, pady=10, sticky=(tk.W, tk.E, tk.N, tk.S))
+        display_frame.columnconfigure(0, weight=1)
+        display_frame.columnconfigure(1, weight=1)
+        display_frame.rowconfigure(0, weight=1)
+        
+        # 左侧显示 - 原图
+        left_frame = ttk.LabelFrame(display_frame, text="原图", padding="5")
+        left_frame.grid(row=0, column=0, padx=(0, 5), sticky=(tk.W, tk.E, tk.N, tk.S))
+        left_frame.columnconfigure(0, weight=1)
+        left_frame.rowconfigure(0, weight=1)
+        
+        self.original_label = ttk.Label(left_frame, text="请选择检测功能", background="black", foreground="white", anchor="center")
+        self.original_label.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # 右侧显示 - 检测结果
+        right_frame = ttk.LabelFrame(display_frame, text="检测结果", padding="5")
+        right_frame.grid(row=0, column=1, padx=(5, 0), sticky=(tk.W, tk.E, tk.N, tk.S))
+        right_frame.columnconfigure(0, weight=1)
+        right_frame.rowconfigure(0, weight=1)
+        
+        self.result_label = ttk.Label(right_frame, text="检测结果将在此显示", background="black", foreground="white", anchor="center")
+        self.result_label.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # 检测信息显示
+        info_frame = ttk.LabelFrame(main_frame, text="检测信息", padding="10")
+        info_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        info_frame.columnconfigure(0, weight=1)
+        info_frame.rowconfigure(0, weight=1)
+        
+        self.info_text = tk.Text(info_frame, height=8)
+        self.info_text.grid(row=0, column=0, sticky=(tk.W, tk.E))
+        
+        # 添加滚动条
+        scrollbar = ttk.Scrollbar(info_frame, orient="vertical", command=self.info_text.yview)
+        scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        self.info_text.configure(yscrollcommand=scrollbar.set)
+    
+    def select_model(self):
+        model_types = {
+            "pt": [("PyTorch模型", "*.pt")],
+            "pth": [("PyTorch模型", "*.pth")],
+            "onnx": [("ONNX模型", "*.onnx")]
+        }
+        
+        current_type = self.model_type.get()
+        file_types = model_types.get(current_type, [("All files", "*.*")])
+        file_types.append(("All files", "*.*"))
+        
         file_path = filedialog.askopenfilename(
-            title="选择YOLOv5模型文件",
-            filetypes=[("PyTorch模型文件", "*.pt"), ("所有文件", "*.*")]
+            title=f"选择{current_type.upper()}模型文件",
+            filetypes=file_types
         )
         if file_path:
-            self.model_path_var.set(file_path)
-            self.model_path = file_path
-    
-    def browse_image(self):
-        file_path = filedialog.askopenfilename(
-            title="选择图片文件",
-            filetypes=[("图片文件", "*.jpg *.jpeg *.png *.bmp"), ("所有文件", "*.*")]
-        )
-        if file_path:
-            self.image_path_var.set(file_path)
-    
-    def browse_video(self):
-        file_path = filedialog.askopenfilename(
-            title="选择视频文件",
-            filetypes=[("视频文件", "*.mp4 *.avi *.mov *.mkv"), ("所有文件", "*.*")]
-        )
-        if file_path:
-            self.video_path_var.set(file_path)
-            self.current_video_path = file_path
+            self.model_path.set(file_path)
     
     def load_model(self):
-        if not self.model_path:
-            messagebox.showerror("错误", "请先选择模型文件")
-            return
-        
         try:
-            self.model = torch.hub.load('ultralytics/yolov5', 'custom', path=self.model_path, force_reload=True)
-            messagebox.showinfo("成功", "模型加载成功")
+            if not self.model_path.get():
+                messagebox.showerror("错误", "请先选择模型文件")
+                return
+            
+            model_path = self.model_path.get()
+            model_ext = os.path.splitext(model_path)[1][1:]  # 获取扩展名 without dot
+            
+            if model_ext == "pt":
+                # 加载PyTorch模型
+                self.current_model = torch.hub.load('ultralytics/yolov5', 'custom', path=model_path, force_reload=True)
+            elif model_ext == "pth":
+                # 加载PyTorch模型
+                self.current_model = torch.hub.load('ultralytics/yolov5', 'custom', path=model_path, force_reload=True)
+            elif model_ext == "onnx":
+                # 加载ONNX模型
+                self.current_model = torch.hub.load('ultralytics/yolov5', 'custom', path=model_path)
+            else:
+                messagebox.showerror("错误", f"不支持的模型格式: {model_ext}")
+                return
+            
+            messagebox.showinfo("成功", f"{model_ext.upper()}模型加载成功")
         except Exception as e:
             messagebox.showerror("错误", f"模型加载失败: {str(e)}")
     
     def detect_image(self):
-        if not self.model:
+        if not self.current_model:
             messagebox.showerror("错误", "请先加载模型")
             return
         
-        image_path = self.image_path_var.get()
-        if not image_path or not os.path.exists(image_path):
-            messagebox.showerror("错误", "请选择有效的图片文件")
+        file_path = filedialog.askopenfilename(
+            title="选择图片文件",
+            filetypes=[("Image files", "*.jpg *.jpeg *.png *.bmp"), ("All files", "*.*")]
+        )
+        if not file_path:
             return
         
         try:
             # 读取图片
-            img = cv2.imread(image_path)
-            if img is None:
-                raise ValueError("无法读取图片")
+            img = cv2.imread(file_path)
+            original_img = img.copy()
             
-            # 检测
-            results = self.model(img)
+            # 进行检测
+            results = self.current_model(img)
             
-            # 获取检测结果
-            img_with_detections = results.render()[0]
+            # 显示原图
+            self.display_image(original_img, self.original_label)
             
-            # 显示结果
-            self.display_image(img_with_detections)
+            # 显示检测结果
+            img_with_boxes = results.render()[0]
+            self.display_image(img_with_boxes, self.result_label)
             
             # 显示检测信息
-            self.show_detection_info(results)
+            self.display_detection_info(results)
             
         except Exception as e:
-            messagebox.showerror("错误", f"检测失败: {str(e)}")
+            messagebox.showerror("错误", f"图片检测失败: {str(e)}")
     
-    def open_camera(self):
-        if not self.model:
+    def detect_camera(self):
+        if not self.current_model:
             messagebox.showerror("错误", "请先加载模型")
             return
         
-        try:
-            self.cap = cv2.VideoCapture(0)
-            if not self.cap.isOpened():
-                raise Exception("无法打开摄像头")
-            
-            self.is_running = True
-            self.update_camera()
-        except Exception as e:
-            messagebox.showerror("错误", f"打开摄像头失败: {str(e)}")
+        # 打开摄像头
+        self.cap = cv2.VideoCapture(0)
+        if not self.cap.isOpened():
+            messagebox.showerror("错误", "无法打开摄像头")
+            return
+        
+        self.is_detecting = True
+        self.camera_loop()
     
-    def close_camera(self):
-        self.is_running = False
-        if self.cap:
-            self.cap.release()
-            self.cap = None
-        self.canvas.delete("all")
-        self.canvas.create_text(
-            self.canvas.winfo_width()//2, 
-            self.canvas.winfo_height()//2, 
-            text="摄像头已关闭", 
-            fill="white", 
-            font=("Arial", 20)
-        )
-    
-    def update_camera(self):
-        if not self.is_running or not self.cap or not self.cap.isOpened():
+    def camera_loop(self):
+        if not self.is_detecting:
             return
         
         ret, frame = self.cap.read()
         if ret:
-            # 检测
-            results = self.model(frame)
-            img_with_detections = results.render()[0]
+            # 进行检测
+            results = self.current_model(frame)
             
-            # 显示结果
-            self.display_image(img_with_detections)
+            # 显示原图
+            self.display_image(frame, self.original_label)
             
-            # 显示检测信息
-            self.show_detection_info(results)
+            # 显示检测结果
+            img_with_boxes = results.render()[0]
+            self.display_image(img_with_boxes, self.result_label)
+            
+            # 显示检测信息（更新频率可调整，避免信息刷新过快）
+            if hasattr(self, '_last_info_update'):
+                if time.time() - self._last_info_update > 1.0:  # 每秒更新一次信息
+                    self.display_detection_info(results)
+                    self._last_info_update = time.time()
+            else:
+                self.display_detection_info(results)
+                self._last_info_update = time.time()
         
-        # 继续更新
-        if self.is_running:
-            self.root.after(10, self.update_camera)
+        # 继续循环
+        if self.is_detecting:
+            self.root.after(10, self.camera_loop)  # 约100 FPS
     
     def detect_video(self):
-        if not self.model:
+        if not self.current_model:
             messagebox.showerror("错误", "请先加载模型")
             return
         
-        video_path = self.video_path_var.get()
-        if not video_path or not os.path.exists(video_path):
-            messagebox.showerror("错误", "请选择有效的视频文件")
+        file_path = filedialog.askopenfilename(
+            title="选择视频文件",
+            filetypes=[("Video files", "*.mp4 *.avi *.mov *.mkv"), ("All files", "*.*")]
+        )
+        if not file_path:
             return
         
-        if self.video_cap and self.video_cap.isOpened():
-            self.video_cap.release()
-        
-        self.video_cap = cv2.VideoCapture(video_path)
-        if not self.video_cap.isOpened():
+        # 打开视频文件
+        self.cap = cv2.VideoCapture(file_path)
+        if not self.cap.isOpened():
             messagebox.showerror("错误", "无法打开视频文件")
             return
         
-        self.playing_video = True
-        self.progress_bar.pack(fill=tk.X, pady=(5, 0))
-        self.update_video()
+        self.is_detecting = True
+        self.video_loop()
     
-    def update_video(self):
-        if not self.playing_video or not self.video_cap or not self.video_cap.isOpened():
+    def video_loop(self):
+        if not self.is_detecting:
             return
         
-        ret, frame = self.video_cap.read()
-        if not ret:
-            # 视频播放完毕
-            self.playing_video = False
-            self.progress_bar.pack_forget()
-            return
-        
-        # 检测
-        results = self.model(frame)
-        img_with_detections = results.render()[0]
-        
-        # 显示结果
-        self.display_image(img_with_detections)
-        
-        # 显示检测信息
-        self.show_detection_info(results)
-        
-        # 更新进度条
-        total_frames = int(self.video_cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        current_frame = int(self.video_cap.get(cv2.CAP_PROP_POS_FRAMES))
-        self.progress_var.set((current_frame / total_frames) * 100)
-        
-        # 继续更新
-        if self.playing_video:
-            self.root.after(30, self.update_video)  # 约30fps
-    
-    def toggle_video_play(self):
-        if self.playing_video:
-            self.playing_video = False
-            self.progress_bar.pack_forget()
+        ret, frame = self.cap.read()
+        if ret:
+            # 进行检测
+            results = self.current_model(frame)
+            
+            # 显示原图
+            self.display_image(frame, self.original_label)
+            
+            # 显示检测结果
+            img_with_boxes = results.render()[0]
+            self.display_image(img_with_boxes, self.result_label)
+            
+            # 显示检测信息（更新频率可调整）
+            if hasattr(self, '_last_info_update'):
+                if time.time() - self._last_info_update > 0.5:  # 每0.5秒更新一次信息
+                    self.display_detection_info(results)
+                    self._last_info_update = time.time()
+            else:
+                self.display_detection_info(results)
+                self._last_info_update = time.time()
         else:
-            if self.current_video_path:
-                self.detect_video()
-    
-    def display_image(self, img):
-        # 转换BGR到RGB
-        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            # 视频播放结束
+            self.is_detecting = False
+            if self.cap:
+                self.cap.release()
+            return
         
-        # 转换为PIL Image
+        # 继续循环
+        if self.is_detecting:
+            self.root.after(1, self.video_loop)  # 尽可能快地处理视频帧
+    
+    def stop_detection(self):
+        self.is_detecting = False
+        if self.cap:
+            self.cap.release()
+            self.cap = None
+        # 重置显示标签
+        self.original_label.configure(image='', text="请选择检测功能", background="black", foreground="white")
+        self.result_label.configure(image='', text="检测结果将在此显示", background="black", foreground="white")
+    
+    def display_image(self, img, label):
+        # 转换图像格式
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img_pil = Image.fromarray(img_rgb)
         
-        # 调整大小以适应canvas
-        canvas_width = self.canvas.winfo_width()
-        canvas_height = self.canvas.winfo_height()
+        # 获取标签的当前尺寸
+        label_width = label.winfo_width()
+        label_height = label.winfo_height()
         
-        if canvas_width > 1 and canvas_height > 1:
-            img_pil = img_pil.resize((canvas_width, canvas_height), Image.Resampling.LANCZOS)
+        # 如果标签还没有尺寸（例如首次显示），则使用默认尺寸
+        if label_width <= 1 or label_height <= 1:
+            label_width, label_height = 640, 480
         
-        # 转换为PhotoImage
+        # 调整图像大小以适应显示区域，保持宽高比
+        img_ratio = img_pil.width / img_pil.height
+        label_ratio = label_width / label_height
+        
+        if img_ratio > label_ratio:
+            # 图像更宽，以宽度为基准
+            new_width = label_width
+            new_height = int(label_width / img_ratio)
+        else:
+            # 图像更高，以高度为基准
+            new_height = label_height
+            new_width = int(label_height * img_ratio)
+        
+        img_pil = img_pil.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
         img_tk = ImageTk.PhotoImage(img_pil)
-        
-        # 显示在canvas上
-        self.canvas.delete("all")
-        self.canvas.create_image(canvas_width//2, canvas_height//2, anchor=tk.CENTER, image=img_tk)
-        
-        # 保持引用以防止被垃圾回收
-        self.current_image = img_tk
+        label.configure(image=img_tk, text="", background="white")
+        label.image = img_tk  # 保持引用防止垃圾回收
     
-    def show_detection_info(self, results):
-        # 清空信息框
+    def display_detection_info(self, results):
+        # 清空文本框
         self.info_text.delete(1.0, tk.END)
         
         # 获取检测结果
-        detections = results.pandas().xyxy[0]  # 获取pandas格式的结果
+        detections = results.pandas().xyxy[0]
         
+        # 显示检测信息
+        info = "检测结果:\n"
+        for index, row in detections.iterrows():
+            info += f"目标: {row['name']}, 置信度: {row['confidence']:.2f}, 位置: ({int(row['xmin'])}, {int(row['ymin'])}, {int(row['xmax'])}, {int(row['ymax'])})\n"
+        
+        # 添加统计信息
         if len(detections) > 0:
-            info_str = f"检测到 {len(detections)} 个对象:\n\n"
-            for i, det in detections.iterrows():
-                info_str += f"对象 {i+1}: {det['name']} (置信度: {det['confidence']:.2f})\n"
-                info_str += f"  位置: ({int(det['xmin'])}, {int(det['ymin'])}) - ({int(det['xmax'])}, {int(det['ymax'])})\n\n"
+            info += f"\n统计信息:\n"
+            for obj in detections['name'].value_counts().iteritems():
+                info += f"{obj[0]}: {obj[1]} 个\n"
         else:
-            info_str = "未检测到任何对象"
+            info += "\n未检测到任何目标\n"
         
-        self.info_text.insert(tk.END, info_str)
-    
-    def on_closing(self):
-        self.is_running = False
-        if self.cap:
-            self.cap.release()
-        if self.video_cap:
-            self.video_cap.release()
-        self.root.destroy()
-
+        self.info_text.insert(tk.END, info)
 
 if __name__ == "__main__":
     root = tk.Tk()
     app = YOLODetectorApp(root)
-    root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
