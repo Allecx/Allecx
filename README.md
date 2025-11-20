@@ -1,16 +1,82 @@
-## Hi there 👋
+# YOLOv5目标检测软件
 
-<!--
-**Allecx/Allecx** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+这是一个基于Python和Tkinter开发的YOLOv5目标检测软件，支持模型选择、摄像头调用、图片检测和视频检测等功能。
 
-Here are some ideas to get you started:
+## 功能特点
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+- **模型选择**：支持加载自定义的YOLOv5模型文件(.pt)
+- **图片检测**：对单张图片进行目标检测
+- **摄像头检测**：实时检测摄像头画面中的目标
+- **视频检测**：对视频文件进行目标检测
+- **结果展示**：实时显示检测结果和检测信息
+- **简单易用**：直观的图形用户界面
+
+## 安装依赖
+
+在运行程序之前，请先安装所需的依赖包：
+
+```bash
+pip install -r requirements.txt
+```
+
+或者单独安装：
+
+```bash
+pip install torch torchvision opencv-python Pillow numpy pandas ultralytics
+```
+
+## 使用方法
+
+1. 运行主程序：
+```bash
+python yolo_detector.py
+```
+
+2. 界面说明：
+   - 左侧为控制面板，包含模型选择和功能选择
+   - 右侧为检测结果显示区域
+   - 底部为检测信息显示区域
+
+3. 操作步骤：
+   - 首先点击"浏览"按钮选择YOLOv5模型文件(.pt)
+   - 点击"加载模型"按钮加载模型
+   - 选择功能模式（图片检测/摄像头检测/视频检测）
+   - 根据所选模式进行相应操作：
+     * 图片检测：选择图片文件并点击"开始检测"
+     * 摄像头检测：点击"打开摄像头"
+     * 视频检测：选择视频文件并点击"开始检测"
+
+## 文件说明
+
+- `yolo_detector.py`：主程序文件
+- `requirements.txt`：项目依赖列表
+- `README.md`：使用说明文档
+
+## 注意事项
+
+1. 请确保已安装正确版本的PyTorch和CUDA（如果使用GPU）
+2. 模型文件应为YOLOv5训练得到的.pt格式文件
+3. 摄像头功能需要系统支持摄像头设备
+4. 视频检测功能支持常见的视频格式（mp4, avi, mov等）
+
+## 模型更换
+
+要更换检测模型，只需：
+1. 准备新的YOLOv5模型文件(.pt格式)
+2. 在软件中点击"浏览"按钮选择新模型
+3. 点击"加载模型"按钮即可完成更换
+
+## 开发说明
+
+本软件使用了以下技术：
+- GUI框架：Tkinter
+- 深度学习框架：PyTorch
+- 计算机视觉：OpenCV
+- 目标检测模型：YOLOv5
+- 图像处理：Pillow
+
+## 常见问题
+
+1. **模型加载失败**：请检查模型文件路径和格式是否正确
+2. **摄像头无法打开**：请检查摄像头权限和设备连接
+3. **检测速度慢**：可能是硬件性能不足，建议使用GPU加速
