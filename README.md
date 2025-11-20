@@ -62,6 +62,9 @@
    - 选择要检测的视频文件
    - 软件会实时处理视频并显示结果
    - 点击"停止检测"按钮停止检测
+  
+## 模型下载地址：
+https://docs.ultralytics.com/zh/models/yolo12/
 
 
 
